@@ -102,13 +102,52 @@
       width: 100%;
       min-width: 0;
     }
+
+    /* Strictly monochrome custom range slider */
+    input[type="range"].bw-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      background: transparent;
+      cursor: pointer;
+    }
+
+    input[type="range"].bw-slider::-webkit-slider-runnable-track {
+      height: 4px;
+      background: currentColor;
+      border-radius: 9999px;
+    }
+
+    input[type="range"].bw-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 9999px;
+      background: #FFFFFF;
+      border: 2.5px solid #000000;
+      margin-top: -5px;
+    }
+
+    input[type="range"].bw-slider::-moz-range-track {
+      height: 4px;
+      background: currentColor;
+      border-radius: 9999px;
+    }
+
+    input[type="range"].bw-slider::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      border-radius: 9999px;
+      background: #FFFFFF;
+      border: 2.5px solid #000000;
+    }
   </style>
 </head>
 <body class="h-screen w-full flex flex-col justify-between bg-purewhite text-pureblack transition-colors duration-150 overflow-hidden" id="app-root">
 
-  <!-- Top Utility Bar: Audio Controls, Status Indicator, and Embed Guide -->
-  <header class="w-full px-4 py-3 sm:px-6 sm:py-4 flex items-center justify-between gap-2">
-    <!-- Left: Sound Toggle & Test Button -->
+  <!-- Top Utility Bar: Audio Controls, Volume Slider, Status Indicator, and Embed Guide -->
+  <header class="w-full px-4 py-3 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-2">
+    <!-- Left: Sound Toggle, Volume Slider & Test Button -->
     <div class="flex items-center gap-2">
       <button
         id="mute-btn"
@@ -128,8 +167,25 @@
           <line x1="23" y1="9" x2="17" y2="15"></line>
           <line x1="17" y1="9" x2="23" y2="15"></line>
         </svg>
-        <span id="mute-label" class="hidden sm:inline">Sound On</span>
+        <span id="mute-label" class="hidden md:inline">Sound On</span>
       </button>
+
+      <!-- Monochrome Volume Slider -->
+      <div
+        class="inline-flex items-center gap-2 px-2.5 py-1.5 border border-current rounded-md"
+        title="Adjust chime volume"
+      >
+        <input
+          id="volume-slider"
+          type="range"
+          min="0"
+          max="100"
+          value="85"
+          aria-label="Chime volume"
+          class="bw-slider bw-focus w-16 sm:w-24"
+        />
+        <span id="volume-value" class="tabular-nums text-xs font-bold w-8 text-right">85%</span>
+      </div>
 
       <button
         id="test-sound-btn"
@@ -315,6 +371,7 @@
       let isRunning = false;
       let isFinished = false;
       let isMuted = false;
+      let volumeLevel = 0.85; // 0.0 to 1.0 (default 85%)
       let timerInterval = null;
       let targetEndTime = null;
       let chimeRepeatInterval = null;
@@ -335,6 +392,8 @@
       const muteLabel = document.getElementById('mute-label');
       const iconSoundOn = document.getElementById('icon-sound-on');
       const iconSoundOff = document.getElementById('icon-sound-off');
+      const volumeSlider = document.getElementById('volume-slider');
+      const volumeValue = document.getElementById('volume-value');
       const testSoundBtn = document.getElementById('test-sound-btn');
       const statusPill = document.getElementById('status-pill');
       const progressBar = document.getElementById('progress-bar');
@@ -362,38 +421,118 @@
       }
 
       /**
-       * Plays a clean, pleasant harmonic 4-note presentation chime sequence.
+       * Plays a crisp, high-projection wooden percussion (marimba / woodblock) sequence
+       * designed to cut clearly through noisy room chatter while scaling cleanly with volumeLevel.
        */
       function playChimeSequence(forcePlay = false) {
-        if (isMuted && !forcePlay) return;
+        const effectiveVolume = forcePlay && (isMuted || volumeLevel === 0) ? 0.85 : (isMuted ? 0 : volumeLevel);
+        if (effectiveVolume <= 0) return;
+
         unlockAudioContext();
         if (!audioCtx) return;
 
         try {
           const now = audioCtx.currentTime;
-          // Crisp C6 -> E6 -> G6 -> C7 chime notes
-          const notes = [1046.5, 1318.51, 1567.98, 2093.0];
+
+          // Master gain + dynamic compressor so wooden transients project loudly without clipping
+          const compressor = audioCtx.createDynamicsCompressor();
+          compressor.threshold.setValueAtTime(-12, now);
+          compressor.knee.setValueAtTime(10, now);
+          compressor.ratio.setValueAtTime(8, now);
+          compressor.attack.setValueAtTime(0.002, now);
+          compressor.release.setValueAtTime(0.15, now);
+
+          const masterGain = audioCtx.createGain();
+          // High output projection for loud rooms
+          masterGain.gain.setValueAtTime(effectiveVolume * 2.1, now);
+
+          masterGain.connect(compressor);
+          compressor.connect(audioCtx.destination);
+
+          // Resonant wooden marimba/temple-block pattern (G5 -> C6 -> E6 -> G6)
+          const notes = [783.99, 1046.5, 1318.51, 1567.98];
 
           notes.forEach((freq, idx) => {
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
+            const startTime = now + idx * 0.14;
 
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(freq, now + idx * 0.14);
+            // Layer 1: Warm wooden fundamental resonance (fast percussive decay)
+            const bodyOsc = audioCtx.createOscillator();
+            const bodyGain = audioCtx.createGain();
+            bodyOsc.type = 'sine';
+            // Subtle downward pitch bend on attack mimics physical wood mallet impact
+            bodyOsc.frequency.setValueAtTime(freq * 1.03, startTime);
+            bodyOsc.frequency.exponentialRampToValueAtTime(freq, startTime + 0.018);
 
-            // Smooth attack and exponential decay to prevent clicking
-            gain.gain.setValueAtTime(0.0001, now + idx * 0.14);
-            gain.gain.exponentialRampToValueAtTime(0.24, now + idx * 0.14 + 0.02);
-            gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.14 + 0.65);
+            bodyGain.gain.setValueAtTime(0.0001, startTime);
+            bodyGain.gain.linearRampToValueAtTime(0.85, startTime + 0.004);
+            bodyGain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.24);
 
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
+            bodyOsc.connect(bodyGain);
+            bodyGain.connect(masterGain);
 
-            osc.start(now + idx * 0.14);
-            osc.stop(now + idx * 0.14 + 0.7);
+            bodyOsc.start(startTime);
+            bodyOsc.stop(startTime + 0.26);
+
+            // Layer 2: Characteristic marimba 4x overtone (2 octaves up) for hollow woody timbre
+            const woodOvertoneOsc = audioCtx.createOscillator();
+            const woodOvertoneGain = audioCtx.createGain();
+            woodOvertoneOsc.type = 'triangle';
+            woodOvertoneOsc.frequency.setValueAtTime(freq * 4, startTime);
+
+            woodOvertoneGain.gain.setValueAtTime(0.0001, startTime);
+            woodOvertoneGain.gain.linearRampToValueAtTime(0.45, startTime + 0.002);
+            woodOvertoneGain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.065);
+
+            woodOvertoneOsc.connect(woodOvertoneGain);
+            woodOvertoneGain.connect(masterGain);
+
+            woodOvertoneOsc.start(startTime);
+            woodOvertoneOsc.stop(startTime + 0.075);
+
+            // Layer 3: Sharp mallet knock transient (bandpass-filtered noise burst)
+            const bufferSize = Math.floor(audioCtx.sampleRate * 0.025);
+            const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const output = noiseBuffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+              output[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.25));
+            }
+
+            const knockSource = audioCtx.createBufferSource();
+            knockSource.buffer = noiseBuffer;
+
+            const knockFilter = audioCtx.createBiquadFilter();
+            knockFilter.type = 'bandpass';
+            knockFilter.frequency.setValueAtTime(freq * 2.5, startTime);
+            knockFilter.Q.setValueAtTime(4.5, startTime);
+
+            const knockGain = audioCtx.createGain();
+            knockGain.gain.setValueAtTime(0.75, startTime);
+            knockGain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.024);
+
+            knockSource.connect(knockFilter);
+            knockFilter.connect(knockGain);
+            knockGain.connect(masterGain);
+
+            knockSource.start(startTime);
           });
         } catch (err) {
           console.warn('Audio playback error:', err);
+        }
+      }
+
+      function syncAudioUI() {
+        const effectivelyMuted = isMuted || volumeLevel === 0;
+        if (effectivelyMuted) {
+          iconSoundOn.classList.add('hidden');
+          iconSoundOff.classList.remove('hidden');
+          muteLabel.textContent = 'Muted';
+          volumeValue.textContent = '0%';
+          stopCompletionAlarm();
+        } else {
+          iconSoundOn.classList.remove('hidden');
+          iconSoundOff.classList.add('hidden');
+          muteLabel.textContent = 'Sound On';
+          volumeValue.textContent = `${Math.round(volumeLevel * 100)}%`;
         }
       }
 
@@ -515,18 +654,16 @@
         remainingSeconds = 0;
         renderDisplay();
 
-        // Play completion chime immediately and repeat gently twice so presenter hears it
+        // Play completion wood chime immediately and continue repeating until reset
         playChimeSequence();
-        let repeats = 0;
         stopCompletionAlarm();
         chimeRepeatInterval = setInterval(() => {
-          repeats += 1;
-          if (repeats >= 2 || !isFinished) {
+          if (!isFinished) {
             stopCompletionAlarm();
             return;
           }
           playChimeSequence();
-        }, 2800);
+        }, 1600);
       }
 
       // --- Direct Inline Duration Editing ---
@@ -675,15 +812,26 @@
       muteBtn.addEventListener('click', () => {
         unlockAudioContext();
         isMuted = !isMuted;
-        if (isMuted) {
-          iconSoundOn.classList.add('hidden');
-          iconSoundOff.classList.remove('hidden');
-          muteLabel.textContent = 'Muted';
-          stopCompletionAlarm();
-        } else {
-          iconSoundOn.classList.remove('hidden');
-          iconSoundOff.classList.add('hidden');
-          muteLabel.textContent = 'Sound On';
+        if (!isMuted && volumeLevel === 0) {
+          volumeLevel = 0.85;
+          volumeSlider.value = '85';
+        }
+        syncAudioUI();
+      });
+
+      // Volume Slider Adjustment
+      volumeSlider.addEventListener('input', () => {
+        unlockAudioContext();
+        const val = parseInt(volumeSlider.value, 10);
+        volumeLevel = Math.max(0, Math.min(100, val)) / 100;
+        isMuted = volumeLevel === 0;
+        syncAudioUI();
+      });
+
+      // Play a quick preview chime when releasing the volume slider so presenter can gauge room level
+      volumeSlider.addEventListener('change', () => {
+        if (!isMuted && volumeLevel > 0) {
+          playChimeSequence();
         }
       });
 

@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Presentation Timer</title>
+  <!-- Load Source Sans 3 from Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <!-- Load Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Source Sans 3"', 'sans-serif'],
+          },
+          colors: {
+            pureblack: '#000000',
+            purewhite: '#FFFFFF',
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    /* Enforce strictly black and white aesthetics and crisp tabular numerals */
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      font-family: 'Source Sans 3', sans-serif;
+      background-color: #FFFFFF;
+      color: #000000;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum";
+    }
+
+    /* High-contrast completion flash animation using strictly #000000 and #FFFFFF */
+    @keyframes invertPulse {
+      0%, 100% {
+        background-color: #000000;
+        color: #FFFFFF;
+      }
+      50% {
+        background-color: #FFFFFF;
+        color: #000000;
+      }
+    }
+
+    .is-finished-flash {
+      animation: invertPulse 1.1s steps(1, end) infinite;
+    }
+
+    /* Remove spin buttons on number inputs if used */
+    input[type="text"]::-webkit-inner-spin-button,
+    input[type="text"]::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+
+    /* Responsive fluid typography for compact Google Slides iframes up to full screen */
+    .timer-digits {
+      font-size: clamp(3.75rem, 19vw, 13rem);
+      line-height: 0.92;
+      letter-spacing: -0.03em;
+    }
+
+    /* Subtle focus ring strictly in black/white */
+    .bw-focus:focus-visible {
+      outline: 2px solid currentColor;
+      outline-offset: 3px;
+    }
+
+    /* Minimal underline affordance for direct click-to-type digits */
+    .digit-editable {
+      border-bottom: 3px solid transparent;
+      transition: border-color 150ms ease, background-color 150ms ease;
+    }
+
+    .digit-editable:hover,
+    .digit-editable:focus-visible {
+      border-bottom-color: currentColor;
+    }
+
+    .digit-input-active {
+      border-bottom: 3px solid currentColor;
+      background: transparent;
+      color: inherit;
+      height: 100%;
+      line-height: inherit;
+      width: 100%;
+      min-width: 0;
+    }
+  </style>
+</head>
+<body class="h-screen w-full flex flex-col justify-between bg-purewhite text-pureblack transition-colors duration-150 overflow-hidden" id="app-root">
+
+  <!-- Top Utility Bar: Audio Controls, Status Indicator, and Embed Guide -->
+  <header class="w-full px-4 py-3 sm:px-6 sm:py-4 flex items-center justify-between gap-2">
+    <!-- Left: Sound Toggle & Test Button -->
+    <div class="flex items-center gap-2">
+      <button
+        id="mute-btn"
+        type="button"
+        title="Mute or unmute timer chime"
+        class="bw-focus inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs sm:text-sm font-semibold border border-current rounded-md hover:bg-pureblack hover:text-purewhite transition-colors"
+      >
+        <!-- Speaker On Icon -->
+        <svg id="icon-sound-on" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+          <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+          <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+        </svg>
+        <!-- Speaker Off Icon (Hidden by default) -->
+        <svg id="icon-sound-off" class="w-4 h-4 hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+          <line x1="23" y1="9" x2="17" y2="15"></line>
+          <line x1="17" y1="9" x2="23" y2="15"></line>
+        </svg>
+        <span id="mute-label" class="hidden sm:inline">Sound On</span>
+      </button>
+
+      <button
+        id="test-sound-btn"
+        type="button"
+        title="Test Completion Chime"
+        class="bw-focus px-2.5 py-1.5 text-xs sm:text-sm font-semibold border border-current rounded-md hover:bg-pureblack hover:text-purewhite transition-colors"
+      >
+        Test Sound
+      </button>
+    </div>
+
+    <!-- Center/Right: Status Label & Embed Info Trigger -->
+    <div class="flex items-center gap-2 sm:gap-3">
+      <span id="status-pill" class="px-2.5 py-1 text-xs font-bold uppercase tracking-widest border border-current rounded-md">
+        READY
+      </span>
+
+      <button
+        id="info-btn"
+        type="button"
+        title="How to embed in Google Slides"
+        aria-label="How to embed in Google Slides"
+        class="bw-focus w-8 h-8 inline-flex items-center justify-center text-sm font-bold border border-current rounded-md hover:bg-pureblack hover:text-purewhite transition-colors"
+      >
+        ?
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Centerpiece: Directly Editable Countdown & Controls -->
+  <main class="flex-1 w-full max-w-4xl mx-auto px-4 flex flex-col items-center justify-center gap-6 sm:gap-8">
+    
+    <!-- Interactive Direct-Type Timer Display -->
+    <div id="timer-container" class="flex flex-col items-center">
+      <div class="flex items-center justify-center select-none" aria-live="off">
+        <!-- Minutes Slot (Click or Tab to Type Directly) -->
+        <div class="relative inline-flex items-center justify-center">
+          <button
+            id="minutes-display"
+            type="button"
+            title="Click to type minutes"
+            aria-label="Minutes, click to type"
+            class="timer-digits tabular-nums font-extrabold px-2 sm:px-3 py-1 digit-editable outline-none cursor-text bg-transparent text-inherit"
+          >05</button>
+          <input
+            id="minutes-input"
+            type="text"
+            inputmode="numeric"
+            maxlength="3"
+            aria-label="Type minutes"
+            class="hidden absolute inset-0 timer-digits tabular-nums font-extrabold text-center px-2 sm:px-3 py-1 m-0 border-0 digit-input-active outline-none"
+          />
+        </div>
+
+        <!-- Colon Separator -->
+        <span class="timer-digits tabular-nums font-extrabold pb-2 sm:pb-4 px-0.5">:</span>
+
+        <!-- Seconds Slot (Click or Tab to Type Directly) -->
+        <div class="relative inline-flex items-center justify-center">
+          <button
+            id="seconds-display"
+            type="button"
+            title="Click to type seconds"
+            aria-label="Seconds, click to type"
+            class="timer-digits tabular-nums font-extrabold px-2 sm:px-3 py-1 digit-editable outline-none cursor-text bg-transparent text-inherit"
+          >00</button>
+          <input
+            id="seconds-input"
+            type="text"
+            inputmode="numeric"
+            maxlength="2"
+            aria-label="Type seconds"
+            class="hidden absolute inset-0 timer-digits tabular-nums font-extrabold text-center px-2 sm:px-3 py-1 m-0 border-0 digit-input-active outline-none"
+          />
+        </div>
+      </div>
+
+      <!-- Understated Presenter Micro-Label -->
+      <div class="mt-3">
+        <span id="edit-hint" class="text-[11px] sm:text-xs font-bold uppercase tracking-[0.2em]">
+          Click time to type
+        </span>
+      </div>
+    </div>
+
+    <!-- Primary Transport Controls: Start, Pause, Reset -->
+    <div class="flex flex-wrap items-center justify-center gap-3 sm:gap-4">
+      <button
+        id="start-btn"
+        type="button"
+        class="bw-focus min-w-[104px] sm:min-w-[124px] px-6 py-3 text-base sm:text-lg font-bold tracking-wide border-2 border-current rounded-lg bg-pureblack text-purewhite hover:bg-purewhite hover:text-pureblack transition-colors cursor-pointer"
+      >
+        Start
+      </button>
+
+      <button
+        id="pause-btn"
+        type="button"
+        class="bw-focus min-w-[104px] sm:min-w-[124px] px-6 py-3 text-base sm:text-lg font-bold tracking-wide border-2 border-current rounded-lg bg-purewhite text-pureblack hover:bg-pureblack hover:text-purewhite transition-colors cursor-pointer"
+      >
+        Pause
+      </button>
+
+      <button
+        id="reset-btn"
+        type="button"
+        class="bw-focus min-w-[104px] sm:min-w-[124px] px-6 py-3 text-base sm:text-lg font-bold tracking-wide border-2 border-current rounded-lg bg-purewhite text-pureblack hover:bg-pureblack hover:text-purewhite transition-colors cursor-pointer"
+      >
+        Reset
+      </button>
+    </div>
+  </main>
+
+  <!-- Minimal Progress Bar at Bottom Edge (Strictly Black & White) -->
+  <footer class="w-full px-4 py-3 sm:px-6 sm:py-4">
+    <div class="w-full h-2.5 border border-current rounded-full overflow-hidden p-0.5">
+      <div id="progress-bar" class="h-full bg-current rounded-full transition-all duration-200" style="width: 100%;"></div>
+    </div>
+  </footer>
+
+  <!-- Discreet Google Slides Embedding Instructions Modal -->
+  <div
+    id="info-modal"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="modal-title"
+    class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-pureblack/80"
+  >
+    <div class="w-full max-w-lg bg-purewhite text-pureblack border-2 border-pureblack rounded-xl p-5 sm:p-6 shadow-none">
+      <div class="flex items-center justify-between border-b-2 border-pureblack pb-3 mb-4">
+        <h2 id="modal-title" class="text-lg sm:text-xl font-extrabold tracking-tight">
+          Embed in Google Slides
+        </h2>
+        <button
+          id="close-modal-btn"
+          type="button"
+          aria-label="Close instructions"
+          class="bw-focus w-8 h-8 inline-flex items-center justify-center font-bold border border-pureblack rounded-md hover:bg-pureblack hover:text-purewhite transition-colors"
+        >
+          ✕
+        </button>
+      </div>
+
+      <div class="space-y-3 text-sm sm:text-base leading-relaxed">
+        <p class="font-semibold">
+          Google Slides does not natively embed arbitrary webpages via iframe without a helper, so use one of these two clean methods:
+        </p>
+        <ol class="list-decimal list-inside space-y-2">
+          <li>
+            <span class="font-bold">Live Embed Extension (Recommended):</span> Host this single HTML file (e.g., GitHub Pages, Netlify, or Vercel), install the free <span class="font-bold underline">Slides Timer</span> or <span class="font-bold underline">Live Web</span> Chrome extension, and paste your hosted URL directly onto your slide.
+          </li>
+          <li>
+            <span class="font-bold">Direct Slide Link:</span> Select any shape or text box on your slide, press <span class="font-bold border border-pureblack px-1.5 py-0.5 rounded text-xs">Ctrl+K</span> / <span class="font-bold border border-pureblack px-1.5 py-0.5 rounded text-xs">Cmd+K</span>, and link to your hosted timer URL to launch it cleanly during your presentation.
+          </li>
+        </ol>
+        <div class="pt-2 border-t border-pureblack text-xs sm:text-sm font-semibold">
+          Shortcuts: <span class="border border-pureblack px-1.5 py-0.5 rounded">Space</span> Start/Pause • <span class="border border-pureblack px-1.5 py-0.5 rounded">R</span> Reset • Click numbers anytime to edit.
+        </div>
+      </div>
+
+      <div class="mt-5 flex justify-end">
+        <button
+          id="done-modal-btn"
+          type="button"
+          class="bw-focus px-5 py-2 text-sm font-bold border-2 border-pureblack rounded-lg bg-pureblack text-purewhite hover:bg-purewhite hover:text-pureblack transition-colors"
+        >
+          Got it
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /**
+     * Presentation Countdown Timer
+     * Strictly Black (#000000) & White (#FFFFFF) monochrome interface.
+     * Supports direct click-to-type digits, Web Audio API chime synthesis, and responsive embedding.
+     */
+    (function () {
+      // --- State Management ---
+      let initialDurationSeconds = 5 * 60; // Default: 05:00
+      let remainingSeconds = initialDurationSeconds;
+      let isRunning = false;
+      let isFinished = false;
+      let isMuted = false;
+      let timerInterval = null;
+      let targetEndTime = null;
+      let chimeRepeatInterval = null;
+
+      // Web Audio API context (lazy-initialized on user interaction)
+      let audioCtx = null;
+
+      // --- DOM Elements ---
+      const appRoot = document.getElementById('app-root');
+      const minutesDisplay = document.getElementById('minutes-display');
+      const secondsDisplay = document.getElementById('seconds-display');
+      const minutesInput = document.getElementById('minutes-input');
+      const secondsInput = document.getElementById('seconds-input');
+      const startBtn = document.getElementById('start-btn');
+      const pauseBtn = document.getElementById('pause-btn');
+      const resetBtn = document.getElementById('reset-btn');
+      const muteBtn = document.getElementById('mute-btn');
+      const muteLabel = document.getElementById('mute-label');
+      const iconSoundOn = document.getElementById('icon-sound-on');
+      const iconSoundOff = document.getElementById('icon-sound-off');
+      const testSoundBtn = document.getElementById('test-sound-btn');
+      const statusPill = document.getElementById('status-pill');
+      const progressBar = document.getElementById('progress-bar');
+      const editHint = document.getElementById('edit-hint');
+      const infoBtn = document.getElementById('info-btn');
+      const infoModal = document.getElementById('info-modal');
+      const closeModalBtn = document.getElementById('close-modal-btn');
+      const doneModalBtn = document.getElementById('done-modal-btn');
+
+      // --- Web Audio API Synthesizer (No external audio files required) ---
+      function unlockAudioContext() {
+        try {
+          if (!audioCtx) {
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (AudioContextClass) {
+              audioCtx = new AudioContextClass();
+            }
+          }
+          if (audioCtx && audioCtx.state === 'suspended') {
+            audioCtx.resume();
+          }
+        } catch (err) {
+          console.warn('Web Audio API unavailable:', err);
+        }
+      }
+
+      /**
+       * Plays a clean, pleasant harmonic 4-note presentation chime sequence.
+       */
+      function playChimeSequence(forcePlay = false) {
+        if (isMuted && !forcePlay) return;
+        unlockAudioContext();
+        if (!audioCtx) return;
+
+        try {
+          const now = audioCtx.currentTime;
+          // Crisp C6 -> E6 -> G6 -> C7 chime notes
+          const notes = [1046.5, 1318.51, 1567.98, 2093.0];
+
+          notes.forEach((freq, idx) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, now + idx * 0.14);
+
+            // Smooth attack and exponential decay to prevent clicking
+            gain.gain.setValueAtTime(0.0001, now + idx * 0.14);
+            gain.gain.exponentialRampToValueAtTime(0.24, now + idx * 0.14 + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.14 + 0.65);
+
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            osc.start(now + idx * 0.14);
+            osc.stop(now + idx * 0.14 + 0.7);
+          });
+        } catch (err) {
+          console.warn('Audio playback error:', err);
+        }
+      }
+
+      function stopCompletionAlarm() {
+        if (chimeRepeatInterval) {
+          clearInterval(chimeRepeatInterval);
+          chimeRepeatInterval = null;
+        }
+      }
+
+      // --- Formatting & Display Rendering ---
+      function pad2(num) {
+        return String(Math.max(0, Math.floor(num))).padStart(2, '0');
+      }
+
+      function renderDisplay() {
+        const mins = Math.floor(remainingSeconds / 60);
+        const secs = remainingSeconds % 60;
+
+        minutesDisplay.textContent = pad2(mins);
+        secondsDisplay.textContent = pad2(secs);
+        document.title = `${pad2(mins)}:${pad2(secs)} — Presentation Timer`;
+
+        // Update progress bar
+        const ratio = initialDurationSeconds > 0
+          ? Math.max(0, Math.min(100, (remainingSeconds / initialDurationSeconds) * 100))
+          : 0;
+        progressBar.style.width = `${ratio}%`;
+
+        // Update transport button states and visual completion inversion
+        if (isFinished) {
+          appRoot.classList.add('is-finished-flash');
+          statusPill.textContent = "TIME'S UP";
+          editHint.textContent = 'Click time to set new duration';
+          startBtn.disabled = true;
+          startBtn.classList.add('opacity-40', 'cursor-not-allowed');
+          pauseBtn.disabled = true;
+          pauseBtn.classList.add('opacity-40', 'cursor-not-allowed');
+        } else {
+          appRoot.classList.remove('is-finished-flash');
+          appRoot.style.backgroundColor = '#FFFFFF';
+          appRoot.style.color = '#000000';
+
+          startBtn.disabled = isRunning || remainingSeconds === 0;
+          startBtn.classList.toggle('opacity-40', startBtn.disabled);
+          startBtn.classList.toggle('cursor-not-allowed', startBtn.disabled);
+
+          pauseBtn.disabled = !isRunning;
+          pauseBtn.classList.toggle('opacity-40', pauseBtn.disabled);
+          pauseBtn.classList.toggle('cursor-not-allowed', pauseBtn.disabled);
+
+          if (isRunning) {
+            statusPill.textContent = 'RUNNING';
+            editHint.textContent = 'Click time to edit';
+          } else if (remainingSeconds < initialDurationSeconds && remainingSeconds > 0) {
+            statusPill.textContent = 'PAUSED';
+            editHint.textContent = 'Click time to type';
+          } else {
+            statusPill.textContent = 'READY';
+            editHint.textContent = 'Click time to type';
+          }
+        }
+      }
+
+      // --- Core Timer Actions ---
+      function startTimer() {
+        commitAllEdits();
+        if (isRunning || remainingSeconds <= 0) return;
+
+        unlockAudioContext();
+        stopCompletionAlarm();
+        isFinished = false;
+        isRunning = true;
+
+        // Drift-free timestamp calculation
+        targetEndTime = Date.now() + remainingSeconds * 1000;
+
+        timerInterval = setInterval(() => {
+          const msLeft = targetEndTime - Date.now();
+          const nextSeconds = Math.max(0, Math.ceil(msLeft / 1000));
+
+          if (nextSeconds !== remainingSeconds) {
+            remainingSeconds = nextSeconds;
+            renderDisplay();
+          }
+
+          if (msLeft <= 0) {
+            handleTimerComplete();
+          }
+        }, 100);
+
+        renderDisplay();
+      }
+
+      function pauseTimer() {
+        if (!isRunning) return;
+        clearInterval(timerInterval);
+        timerInterval = null;
+        isRunning = false;
+        renderDisplay();
+      }
+
+      function resetTimer() {
+        commitAllEdits();
+        clearInterval(timerInterval);
+        timerInterval = null;
+        stopCompletionAlarm();
+        isRunning = false;
+        isFinished = false;
+        remainingSeconds = initialDurationSeconds;
+        renderDisplay();
+      }
+
+      function handleTimerComplete() {
+        clearInterval(timerInterval);
+        timerInterval = null;
+        isRunning = false;
+        isFinished = true;
+        remainingSeconds = 0;
+        renderDisplay();
+
+        // Play completion chime immediately and repeat gently twice so presenter hears it
+        playChimeSequence();
+        let repeats = 0;
+        stopCompletionAlarm();
+        chimeRepeatInterval = setInterval(() => {
+          repeats += 1;
+          if (repeats >= 2 || !isFinished) {
+            stopCompletionAlarm();
+            return;
+          }
+          playChimeSequence();
+        }, 2800);
+      }
+
+      // --- Direct Inline Duration Editing ---
+      function openEditor(unit) {
+        if (isRunning) {
+          pauseTimer();
+        }
+        stopCompletionAlarm();
+        isFinished = false;
+        renderDisplay();
+
+        if (unit === 'minutes') {
+          minutesInput.value = pad2(Math.floor(remainingSeconds / 60));
+          minutesDisplay.classList.add('invisible');
+          minutesInput.classList.remove('hidden');
+          minutesInput.focus();
+          minutesInput.select();
+        } else {
+          secondsInput.value = pad2(remainingSeconds % 60);
+          secondsDisplay.classList.add('invisible');
+          secondsInput.classList.remove('hidden');
+          secondsInput.focus();
+          secondsInput.select();
+        }
+      }
+
+      function commitEdit(unit) {
+        if (unit === 'minutes' && !minutesInput.classList.contains('hidden')) {
+          const parsedMins = parseInt(minutesInput.value.replace(/\D/g, ''), 10);
+          const safeMins = Number.isNaN(parsedMins) ? 0 : Math.min(999, Math.max(0, parsedMins));
+          const currentSecs = remainingSeconds % 60;
+          remainingSeconds = safeMins * 60 + currentSecs;
+          initialDurationSeconds = remainingSeconds;
+
+          minutesInput.classList.add('hidden');
+          minutesDisplay.classList.remove('invisible');
+          renderDisplay();
+        }
+
+        if (unit === 'seconds' && !secondsInput.classList.contains('hidden')) {
+          const parsedSecs = parseInt(secondsInput.value.replace(/\D/g, ''), 10);
+          const safeSecs = Number.isNaN(parsedSecs) ? 0 : Math.min(59, Math.max(0, parsedSecs));
+          const currentMins = Math.floor(remainingSeconds / 60);
+          remainingSeconds = currentMins * 60 + safeSecs;
+          initialDurationSeconds = remainingSeconds;
+
+          secondsInput.classList.add('hidden');
+          secondsDisplay.classList.remove('invisible');
+          renderDisplay();
+        }
+      }
+
+      function commitAllEdits() {
+        commitEdit('minutes');
+        commitEdit('seconds');
+      }
+
+      // --- Event Listeners ---
+      startBtn.addEventListener('click', startTimer);
+      pauseBtn.addEventListener('click', () => {
+        unlockAudioContext();
+        pauseTimer();
+      });
+      resetBtn.addEventListener('click', resetTimer);
+
+      // Click digits to edit directly in place
+      minutesDisplay.addEventListener('click', () => openEditor('minutes'));
+      secondsDisplay.addEventListener('click', () => openEditor('seconds'));
+
+      // Allow pressing Enter or a digit key while display button is focused via Tab
+      minutesDisplay.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || /^\d$/.test(e.key)) {
+          e.preventDefault();
+          openEditor('minutes');
+          if (/^\d$/.test(e.key)) {
+            minutesInput.value = e.key;
+          }
+        }
+      });
+
+      secondsDisplay.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || /^\d$/.test(e.key)) {
+          e.preventDefault();
+          openEditor('seconds');
+          if (/^\d$/.test(e.key)) {
+            secondsInput.value = e.key;
+          }
+        }
+      });
+
+      // Handle blur and Enter / Tab / ':' / Escape on inline inputs
+      minutesInput.addEventListener('blur', () => commitEdit('minutes'));
+      secondsInput.addEventListener('blur', () => commitEdit('seconds'));
+
+      minutesInput.addEventListener('input', () => {
+        minutesInput.value = minutesInput.value.replace(/\D/g, '');
+      });
+
+      secondsInput.addEventListener('input', () => {
+        secondsInput.value = secondsInput.value.replace(/\D/g, '');
+      });
+
+      minutesInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          commitEdit('minutes');
+        } else if (e.key === ':' || (e.key === 'Tab' && !e.shiftKey)) {
+          e.preventDefault();
+          commitEdit('minutes');
+          openEditor('seconds');
+        } else if (e.key === 'Escape') {
+          minutesInput.classList.add('hidden');
+          minutesDisplay.classList.remove('invisible');
+        }
+      });
+
+      secondsInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          commitEdit('seconds');
+        } else if (e.key === 'Tab' && e.shiftKey) {
+          e.preventDefault();
+          commitEdit('seconds');
+          openEditor('minutes');
+        } else if (e.key === 'Escape') {
+          secondsInput.classList.add('hidden');
+          secondsDisplay.classList.remove('invisible');
+        }
+      });
+
+      secondsInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          commitEdit('seconds');
+        } else if (e.key === 'Tab' && e.shiftKey) {
+          e.preventDefault();
+          commitEdit('seconds');
+          openEditor('minutes');
+        } else if (e.key === 'Escape') {
+          secondsInput.classList.add('hidden');
+          secondsDisplay.classList.remove('hidden');
+        }
+      });
+
+      // Audio Mute / Unmute Toggle
+      muteBtn.addEventListener('click', () => {
+        unlockAudioContext();
+        isMuted = !isMuted;
+        if (isMuted) {
+          iconSoundOn.classList.add('hidden');
+          iconSoundOff.classList.remove('hidden');
+          muteLabel.textContent = 'Muted';
+          stopCompletionAlarm();
+        } else {
+          iconSoundOn.classList.remove('hidden');
+          iconSoundOff.classList.add('hidden');
+          muteLabel.textContent = 'Sound On';
+        }
+      });
+
+      // Test Sound Button
+      testSoundBtn.addEventListener('click', () => {
+        playChimeSequence(true);
+      });
+
+      // Modal Controls
+      function toggleModal(show) {
+        if (show) {
+          infoModal.classList.remove('hidden');
+          closeModalBtn.focus();
+        } else {
+          infoModal.classList.add('hidden');
+          infoBtn.focus();
+        }
+      }
+
+      infoBtn.addEventListener('click', () => toggleModal(true));
+      closeModalBtn.addEventListener('click', () => toggleModal(false));
+      doneModalBtn.addEventListener('click', () => toggleModal(false));
+      infoModal.addEventListener('click', (e) => {
+        if (e.target === infoModal) toggleModal(false);
+      });
+
+      // Keyboard Shortcuts (when not typing in inputs)
+      document.addEventListener('keydown', (e) => {
+        const isEditing =
+          !minutesInput.classList.contains('hidden') ||
+          !secondsInput.classList.contains('hidden');
+        const isModalOpen = !infoModal.classList.contains('hidden');
+
+        if (e.key === 'Escape' && isModalOpen) {
+          toggleModal(false);
+          return;
+        }
+
+        if (isEditing || isModalOpen) return;
+
+        // Typing a digit anywhere on the timer screen immediately begins editing minutes
+        if (/^\d$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          openEditor('minutes');
+          minutesInput.value = e.key;
+          return;
+        }
+
+        if (e.code === 'Space') {
+          e.preventDefault();
+          if (isRunning) {
+            pauseTimer();
+          } else if (!isFinished) {
+            startTimer();
+          }
+        } else if (e.key.toLowerCase() === 'r') {
+          resetTimer();
+        }
+      });
+
+      // Initial render
+      renderDisplay();
+    })();
+  </script>
+</body>
+</html>
